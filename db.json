@@ -1,4 +1,12 @@
-
 {
-  "projects": []
+    "projects": [
+        {
+            "id": 1,
+            "title": "Gestion de la bibliotheque",
+            "student_name": "Husni",
+            "course": "C",
+            "description": "RAS",
+            "grade": 0.0
+        }
+    ]
 }
