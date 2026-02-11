@@ -13,6 +13,4 @@ def read_root():
     return {"message": "Bienvenue dans ProjetAPI"}
 
 
-x = 1
-
 app.include_router(projects.router)
