@@ -7,6 +7,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
+x = 1
+
 
 @app.get("/")
 def read_root():
