@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter
 from app.models import Project
 from app.utils.db_manager import read_db, write_db
@@ -15,3 +14,9 @@ def create_project(project: Project):
     write_db(db)
 
     return {"message": "Projet créé avec succès", "project": project}
+
+
+@router.get("/")
+def get_projects():
+    db = read_db()
+    return db["projects"]
