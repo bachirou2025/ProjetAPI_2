@@ -1,4 +1,3 @@
-
 import json
 
 DB_FILE = "db.json"
