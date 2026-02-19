@@ -97,7 +97,7 @@ jobs:
         with:
           server_address: smtp.gmail.com
           server_port: 587
-          secure: true
+          secure: false
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "🔔 Revue LLM pour PR #${{ github.event.pull_request.number }} par @${{ github.actor }}"
