@@ -10,68 +10,66 @@ on:
 jobs:
   review_and_notify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     
     steps:
-      # Étape 1 : Récupérer le code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Récupère tout l'historique pour le diff
+          fetch-depth: 0
 
-      # Étape 2 : Récupérer le diff de la PR
       - name: Get PR diff
         id: get_diff
         run: |
-          # Récupérer le diff entre la branche de base et la branche de la PR
-          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD)
-          
-          # Limiter la taille du diff (max 8000 caractères pour éviter les dépassements API)
-          DIFF_TRUNCATED=$(echo "$DIFF" | head -c 8000)
-          
-          # Échapper les caractères spéciaux pour JSON
-          DIFF_ESCAPED=$(echo "$DIFF_TRUNCATED" | jq -Rs .)
-          
-          # Sauvegarder dans une variable d'environnement
-          echo "diff=$DIFF_ESCAPED" >> $GITHUB_OUTPUT
+          git fetch origin ${{ github.base_ref }} || true
+          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD -- '*.py' 2>/dev/null || echo "No Python files changed")
+          DIFF_LIMITED="${DIFF:0:5000}"
+          if [ -z "$DIFF_LIMITED" ]; then
+            DIFF_LIMITED="Aucun changement Python détecté."
+          fi
+          {
+            echo 'diff<<EOFMARKER'
+            echo "$DIFF_LIMITED"
+            echo 'EOFMARKER'
+          } >> $GITHUB_OUTPUT
 
-      # Étape 3 : Appeler l'API Gemini pour la revue de code
       - name: Call Gemini API
         id: gemini_review
         run: |
-          # Créer le prompt pour Gemini
-          PROMPT="Tu es un relecteur de code expert en Python/FastAPI. Analyse ce diff de code.
+          DIFF_CONTENT=$(cat << 'ENDDIFF'
+          ${{ steps.get_diff.outputs.diff }}
+          ENDDIFF
+          )
           
-          Instructions :
-          - Si le code est bon, fournis 2-3 suggestions d'amélioration constructives
-          - Si tu détectes des bugs ou problèmes, liste-les clairement
-          - Si tu vois des problèmes de sécurité, mentionne-les en priorité
+          PROMPT="Tu es un relecteur de code expert en Python/FastAPI. Analyse ce diff.
+
+          Instructions:
+          - Si le code est bon, donne 2-3 suggestions constructives
+          - Si tu détectes des bugs, liste-les
+          - Si tu vois des problèmes de sécurité, mentionne-les
           - Sois concis et professionnel
           - Réponds en français
           
-          Voici le diff :
-          ${{ steps.get_diff.outputs.diff }}"
+          Diff:
+          ${DIFF_CONTENT}"
           
-          # Appeler l'API Gemini
+          PROMPT_JSON=$(jq -n --arg text "$PROMPT" '{contents:[{parts:[{text:$text}]}]}')
+          
           RESPONSE=$(curl -s -X POST \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"contents\": [{
-                \"parts\": [{
-                  \"text\": $(echo "$PROMPT" | jq -Rs .)
-                }]
-              }]
-            }")
+            -d "$PROMPT_JSON")
           
-          # Extraire le texte de la réponse
-          REVIEW=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Erreur lors de la génération de la revue"')
+          REVIEW=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "⚠️ Erreur: Impossible de générer la revue. Vérifiez la clé API."')
           
-          # Sauvegarder la revue
-          echo "review<<EOF" >> $GITHUB_OUTPUT
-          echo "$REVIEW" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'review<<EOFMARKER'
+            echo "$REVIEW"
+            echo 'EOFMARKER'
+          } >> $GITHUB_OUTPUT
 
-      # Étape 4 : Poster la revue en commentaire sur la PR
       - name: Comment on PR
         uses: actions/github-script@v7
         with:
@@ -80,20 +78,20 @@ jobs:
             
             Bonjour @${{ github.actor }} ! Voici l'analyse automatique de votre code :
             
+            ---
+            
             ${{ steps.gemini_review.outputs.review }}
             
             ---
-            *Cette revue a été générée automatiquement par Gemini AI*
-            `;
+            *Cette revue a été générée automatiquement par Gemini AI*`;
             
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: review
             });
 
-      # Étape 5 : Envoyer un email à l'équipe
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         with:
@@ -120,5 +118,3 @@ jobs:
             
             ---
             Consultez la PR sur GitHub pour plus de détails.
-            
-            Cet email a été envoyé automatiquement par GitHub Actions.
